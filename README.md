@@ -1,6 +1,6 @@
 # fault_enabled_cca
 
-Code belonging to eprint.iacr.org/2021/1222.pdf.
+Code belonging to [Fault-enabled chosen-ciphertext attack on Kyber](https://eprint.iacr.org/2021/1222.pdf).
 
 To run the attack:
 
