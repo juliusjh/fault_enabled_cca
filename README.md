@@ -25,8 +25,10 @@ To run the attack:
 	$ ./python/main.py --threads [number of threads] --number [number of faults] --file [file/dir to save to] --runs [number of runs] --generate --save-keys --iterations [number of iterations] --zip-file [zip to]
 	```
 E.g. 
+
 	```
 	$ VER=kyber512 source maturin_build.sh
+	
 	$ ./python/main.py --seed 42 --number 6000 --file ineqs/ineqs512 --runs 1 --generate --save-keys --iterations 10 --zip-file test.zip
 	```	
 
