@@ -26,10 +26,10 @@ To run the attack:
 	```
 E.g. 
 
-	```
-	$ VER=kyber512 source maturin_build.sh
-	$ ./python/main.py --seed 42 --number 6000 --file ineqs/ineqs512 --runs 1 --generate --save-keys --iterations 10 --zip-file test.zip
-	```	
+    ```
+    $ VER=kyber512 source maturin_build.sh
+    $ ./python/main.py --seed 42 --number 6000 --file ineqs/ineqs512 --runs 1 --generate --save-keys --iterations 10 --zip-file test.zip
+    ```	
 
 Simulates the attack against Kyber512 with 6000 faults/inequalities, 1 run, generating new keys and inequalities, 10 belief propagation iterations, and saving to test.zip.
 
