@@ -1,4 +1,4 @@
-# fault_enabled_cca
+# Fault-enabled chosen-ciphertext attacks on Kyber
 
 Code belonging to [Fault-enabled chosen-ciphertext attack on Kyber](https://eprint.iacr.org/2021/1222.pdf).
 
