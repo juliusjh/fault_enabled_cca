@@ -4,7 +4,7 @@ Code belonging to [Fault-enabled chosen-ciphertext attack on Kyber](https://epri
 
 To run the attack:
 
-1. Create a virtual enviroment in .env
+1. Create a virtual enviroment .env
 	```
 	$ python3 -m venv .env
 	```
