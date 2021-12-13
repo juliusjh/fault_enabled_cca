@@ -28,7 +28,6 @@ E.g.
 
 	```
 	$ VER=kyber512 source maturin_build.sh
-	
 	$ ./python/main.py --seed 42 --number 6000 --file ineqs/ineqs512 --runs 1 --generate --save-keys --iterations 10 --zip-file test.zip
 	```	
 
