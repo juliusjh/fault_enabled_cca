@@ -1,0 +1,11 @@
+*.o
+*.a
+*.swp
+*.swo
+**/target/
+.env/
+ineqs/
+ineqs*
+results/
+check_bp/Cargo.lock
+__pycache__/

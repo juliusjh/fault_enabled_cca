@@ -1,0 +1,35 @@
+[package]
+name = "check_bp"
+version = "0.1.0"
+authors = ["Julius Hermelink <julius.hermelink@unibw.de>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "check_bp"
+crate-type = ["cdylib"]
+
+[dependencies]
+rustfft = "5.0.1"
+crossbeam = "0.8.0"
+
+[dependencies.pyo3]
+version = "*"
+
+[features]
+kyber1024 = []
+kyber768 = []
+kyber512 = []
+extension-module = ["pyo3/extension-module"]
+default = ["extension-module"]
+
+[dependencies.belief_propagation]
+git = "ssh://git@github.com/juliusjh/belief_propagation.git"
+branch = "main"
+features = ["info_output", "progress_output"]
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
