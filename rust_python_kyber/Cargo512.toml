@@ -1,0 +1,23 @@
+[package]
+name = "python_kyber512"
+version = "0.1.0"
+authors = ["Julius Hermelink <julius.hermelink@mpi-sp.org>"]
+edition = "2021"
+
+[lib]
+name = "python_kyber512"
+crate-type = ["cdylib"]
+
+[dependencies.pyo3]
+version = "0.19.2"
+
+[features]
+kyber512 = []
+extension-module = ["pyo3/extension-module", "kyber512"]
+default = ["extension-module"]
+
+[dependencies]
+ndarray = "0.13.1"
+rand = "0.7.3"
+libc = "0.2.77"
+itertools = "0.10.0"

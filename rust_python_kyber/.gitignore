@@ -1,0 +1,8 @@
+/env
+*.swp
+*.swo
+**/target
+*.o
+*.a
+Cargo.lock
+/__pycache__

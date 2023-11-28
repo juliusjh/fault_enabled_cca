@@ -1,15 +1,16 @@
-use crate::bin_var_node::{BinVariableNode, CtrlMsg, CtrlMsgA};
-use crate::check_msg::CheckMsg;
-use crate::check_node::{CheckNode, CmpOperator};
-use belief_propagation::{BPError, BPGraph, Msg, BPResult, Probability};
+use std::collections::HashMap;
+use std::convert::TryInto;
+
+use crossbeam;
 use pyo3::prelude::*;
 use pyo3::{create_exception, PyResult};
 use rustfft::{num_complex::Complex, FftPlanner};
-use std::collections::HashMap;
-use std::convert::TryInto;
-use crossbeam;
 
-const N: usize = 1024;
+use belief_propagation::{BPError, BPGraph, BPResult, Msg, Probability, VariableNode};
+
+use crate::check_msg::CheckMsg;
+use crate::check_nodes::{CheckNode, CmpOperator};
+
 #[cfg(feature = "kyber1024")]
 const K: usize = 2048;
 #[cfg(feature = "kyber768")]
@@ -17,12 +18,14 @@ const K: usize = 1536;
 #[cfg(feature = "kyber512")]
 const K: usize = 1024;
 
+const N: usize = 8192;
+
 #[cfg(feature = "kyber1024")]
-const ETA: usize = 5;
+pub const ETA: usize = 5;
 #[cfg(feature = "kyber768")]
-const ETA: usize = 5;
+pub const ETA: usize = 5;
 #[cfg(feature = "kyber512")]
-const ETA: usize = 7;
+pub const ETA: usize = 7;
 
 create_exception!(check_bp, PyCheckGraphError, pyo3::exceptions::PyException);
 
@@ -31,9 +34,25 @@ pub struct CheckGraphError {
     desc: String,
 }
 
+#[pyclass]
+#[derive(Clone, Debug, PartialEq)]
+pub enum PyCmpOperator {
+    SmallerEq = 0,
+    GreaterEq = 1,
+}
+
+impl PyCmpOperator {
+    pub fn to_cmp_operator(self, value: i64) -> CmpOperator {
+        match self {
+            PyCmpOperator::SmallerEq => CmpOperator::SmallerEq(value),
+            PyCmpOperator::GreaterEq => CmpOperator::GreaterEq(value),
+        }
+    }
+}
+
 impl CheckGraphError {
     pub fn new(desc: String) -> Self {
-        CheckGraphError { desc: desc }
+        CheckGraphError { desc }
     }
     pub fn from_bp(err: BPError) -> Self {
         CheckGraphError {
@@ -64,7 +83,7 @@ impl std::convert::From<CheckGraphError> for PyErr {
 
 #[pyclass]
 pub struct CheckGraph {
-    g: BPGraph<i16, CheckMsg<ETA>, CtrlMsg, CtrlMsgA>,
+    g: BPGraph<i64, CheckMsg<ETA>>,
     var_nodes: usize,
 }
 
@@ -80,33 +99,21 @@ impl CheckGraph {
         }
     }
 
-    fn set_fixed(&mut self, node_index: usize, value: i16) {
-        self.g
-            .send_control_message(node_index, CtrlMsg::SetFixed(value))
-            .expect("Node not found.");
-    }
-
-    fn get_fixed(&mut self, node_index: usize) -> bool {
-        let response: CtrlMsgA = self
-            .g
-            .send_control_message(node_index, CtrlMsg::GetFixed)
-            .expect("Node not found.");
-        match response {
-            CtrlMsgA::Fixed(v) => v,
-            CtrlMsgA::None => panic!("Node did not return valid fixed state."),
-        }
+    fn set_normalize(&mut self, val: bool) {
+        self.g.set_normalize(val);
     }
 
     fn set_check_validity(&mut self, value: bool) {
         self.g.set_check_validity(value);
     }
-    fn add_var_nodes(&mut self, prior: HashMap<i16, f64>) -> PyResult<()> {
-        let mut prior_msg = CheckMsg::new(); //TODO:Ineffcient
+
+    fn add_var_nodes(&mut self, prior: HashMap<i64, f64>) -> PyResult<()> {
+        let mut prior_msg = CheckMsg::new();
         for (v, p) in prior {
             prior_msg[v] = p;
         }
         for i in 0..K {
-            let mut n = BinVariableNode::new();
+            let mut n = VariableNode::new();
             prior_msg
                 .normalize()
                 .map_err(|e| CheckGraphError::from_bp(e))?;
@@ -117,12 +124,13 @@ impl CheckGraph {
         }
         Ok(())
     }
-    fn add_var_node(&mut self, name: String, prior: HashMap<i16, f64>) -> PyResult<usize> {
+
+    fn add_var_node(&mut self, name: String, prior: HashMap<i64, f64>) -> PyResult<usize> {
         let mut prior_msg = CheckMsg::new(); //TODO:Ineffcient
         for (v, p) in prior {
             prior_msg[v] = p;
         }
-        let mut n = BinVariableNode::new();
+        let mut n = VariableNode::new();
         prior_msg
             .normalize()
             .map_err(|e| CheckGraphError::from_bp(e))?;
@@ -132,13 +140,15 @@ impl CheckGraph {
         self.var_nodes += 1;
         Ok(idx)
     }
-    fn add_equation(
+
+    fn add_check_node(
         &mut self,
         name: String,
-        coefficients: Vec<i16>,
-        value: i16,
-        is_smaller: bool,
-        is_equal: bool
+        coefficients: Vec<i64>,
+        value: i64,
+        cmp_operator: PyCmpOperator,
+        prob_correct: Option<f64>,
+        length_llo_distribution: Option<usize>,
     ) -> PyResult<usize> {
         if self.var_nodes != K {
             panic!("Wrong number of variables.");
@@ -150,23 +160,12 @@ impl CheckGraph {
                 coefficients.len()
             );
         }
-        let op = if is_smaller {
-            if is_equal {
-                CmpOperator::SmallerEq
-            }
-            else {
-                CmpOperator::Smaller
-            }
-        } else {
-            if is_equal {
-                CmpOperator::GreaterEq
-            }
-            else {
-                CmpOperator::Greater
-            }
-        };
-        let check_node: CheckNode<K, ETA> =
-            CheckNode::new(coefficients.try_into().unwrap(), value, op, N);
+        let check_node: CheckNode<K, ETA> = CheckNode::new(
+            coefficients.try_into().unwrap(),
+            cmp_operator.to_cmp_operator(value),
+            length_llo_distribution.unwrap_or(N),
+            prob_correct,
+        );
         let idx = self.g.add_node(name, Box::new(check_node));
         for n in 0..self.var_nodes {
             self.g
@@ -175,12 +174,14 @@ impl CheckGraph {
         }
         Ok(idx)
     }
+
     fn ini(&mut self) -> PyResult<()> {
         self.g
             .initialize()
             .map_err(|e| CheckGraphError::from_bp(e))?;
         Ok(())
     }
+
     fn propagate(&mut self, steps: usize, threads: u32) -> PyResult<()> {
         if threads <= 0 {
             return Err(PyErr::from(CheckGraphError::new(
@@ -197,15 +198,17 @@ impl CheckGraph {
         }
         Ok(())
     }
+
     fn get_results(
         &self,
         thread_count: usize,
-    ) -> PyResult<HashMap<usize, Option<(HashMap<i16, Probability>, f64)>>> {
+    ) -> PyResult<HashMap<usize, Option<(HashMap<i64, Probability>, f64)>>> {
         let res = fetch_results_parallel(&self.g, (0..self.var_nodes).collect(), thread_count)
             .map_err(|e| CheckGraphError::from_bp(e))?;
         Ok(res)
     }
-    fn get_result(&self, node: usize) -> PyResult<HashMap<i16, f64>> {
+
+    fn get_result(&self, node: usize) -> PyResult<HashMap<i64, f64>> {
         let res = self
             .g
             .get_result(node)
@@ -221,18 +224,18 @@ impl CheckGraph {
 }
 
 fn fetch_results_parallel(
-    g: &BPGraph<i16, CheckMsg<ETA>, CtrlMsg, CtrlMsgA>,
+    g: &BPGraph<i64, CheckMsg<ETA>>,
     nodes: Vec<usize>,
     thread_count: usize,
-) -> BPResult<HashMap<usize, Option<(HashMap<i16, Probability>, f64)>>> {
+) -> BPResult<HashMap<usize, Option<(HashMap<i64, Probability>, f64)>>> {
     crossbeam::scope(
-        |scope| -> BPResult<HashMap<usize, Option<(HashMap<i16, Probability>, f64)>>> {
+        |scope| -> BPResult<HashMap<usize, Option<(HashMap<i64, Probability>, f64)>>> {
             let nodes_per_thread = nodes.len() / thread_count;
             let mut results = HashMap::new();
             let mut handles = Vec::new();
             for nodes_list in nodes.chunks(nodes_per_thread) {
                 handles.push(scope.spawn(
-                    move |_| -> Vec<(usize, BPResult<Option<(HashMap<i16, Probability>, f64)>>)> {
+                    move |_| -> Vec<(usize, BPResult<Option<(HashMap<i64, Probability>, f64)>>)> {
                         let mut tr_results = Vec::new();
                         for node in nodes_list {
                             let res = g.get_result(*node).map(|res| match res {
@@ -266,7 +269,7 @@ fn fetch_results_parallel(
     .expect("Scoped threading failed.")
 }
 
-fn calc_entropy(probs: &HashMap<i16, Probability>) -> f64 {
+fn calc_entropy(probs: &HashMap<i64, Probability>) -> f64 {
     -probs
         .iter()
         .map(|(_, p)| {
